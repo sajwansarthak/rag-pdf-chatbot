@@ -1,0 +1,19 @@
+# dependencies
+backend/node_modules/
+frontend/node_modules/
+
+# environment files
+backend/.env
+frontend/.env
+
+# uploads
+backend/uploads/
+
+# chroma database
+backend/chroma/
+
+# logs
+*.log
+
+# macOS
+.DS_Store
