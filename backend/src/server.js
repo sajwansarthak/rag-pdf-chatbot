@@ -34,8 +34,20 @@ app.post('/upload',upload.single("pdf"),async (req,res) =>{
     const pdfData = await pdfParse(dataBuffer)
     //getting the text
     const text = pdfData.text
+    // res.send(text)
 
-    res.send(text)
+    //chunking 
+    const chunk =[];
+    
+    for(let i = 0 ; i < text.length;i+=500){
+        chunk.push(text.slice(i,i+500));
+    }
+    //console.log(chunk)
+
+    res.json({
+        total_chunk: chunk.length,
+        chunk
+    })
 })
 
 // Start Server
