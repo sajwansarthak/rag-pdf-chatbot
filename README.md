@@ -1,0 +1,1 @@
+Creating a full RAG-APPLICATION
