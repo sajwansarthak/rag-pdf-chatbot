@@ -1,6 +1,11 @@
 const express = require("express");
+//Used to upload pdf file 
 const multer = require("multer")
+//Used to read uploaded file
+const pdfParse = require("pdf-parse")
 
+
+const fs = require('fs')
 const app = express();
 const PORT = 3000;
 
@@ -18,9 +23,19 @@ app.get("/", (req, res) => {
         message: "RAG Backend Running 🚀"
     });
 });
-app.post('/upload',upload.single("pdf"),(req,res) =>{
+
+// uploading a file in the server
+app.post('/upload',upload.single("pdf"),async (req,res) =>{
     console.log(req.file)
-    res.send("file uploaded successfully")
+
+    //used to read the uploaded file this will give us binary data 
+    const dataBuffer = fs.readFileSync(req.file.path)
+    //Now we will extract the pdf text from the binary data
+    const pdfData = await pdfParse(dataBuffer)
+    //getting the text
+    const text = pdfData.text
+
+    res.send(text)
 })
 
 // Start Server
