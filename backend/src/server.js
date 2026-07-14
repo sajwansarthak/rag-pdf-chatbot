@@ -49,7 +49,7 @@ app.post('/upload',upload.single("pdf"),async (req,res) =>{
 
     res.json({
         total_chunk: chunk.length,
-        chunk
+        chunks
     })
 })
 
