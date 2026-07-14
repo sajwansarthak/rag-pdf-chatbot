@@ -1,1 +1,1 @@
-Creating a full RAG-APPLICATION
+Creating a full RAG-APPLICATION using nodejs langchain ollama 
