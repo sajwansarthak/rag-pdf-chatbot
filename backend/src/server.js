@@ -36,13 +36,16 @@ app.post('/upload',upload.single("pdf"),async (req,res) =>{
     const text = pdfData.text
     // res.send(text)
 
-    //chunking 
-    const chunk =[];
+    //fixed chunking 
+    // const chunk =[];
     
-    for(let i = 0 ; i < text.length;i+=500){
-        chunk.push(text.slice(i,i+500));
-    }
+    // for(let i = 0 ; i < text.length;i+=500){
+    //     chunk.push(text.slice(i,i+500));
+    // }
     //console.log(chunk)
+
+    //Paragraph based chunking
+    const chunks = text.split('\n\n')
 
     res.json({
         total_chunk: chunk.length,
