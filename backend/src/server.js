@@ -45,10 +45,13 @@ app.post('/upload',upload.single("pdf"),async (req,res) =>{
     //console.log(chunk)
 
     //Paragraph based chunking
-    const chunks = text.split('\n\n')
+    const chunks = text
+       .split("/n/n")
+       .map((chunk) => chunk.trim)
+       .filter(Boolean)
 
     res.json({
-        total_chunk: chunk.length,
+        total_chunk: chunks.length,
         chunks
     })
 })
