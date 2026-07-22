@@ -5,9 +5,12 @@ const multer = require("multer")
 const pdfParse = require("pdf-parse")
 //importing embeddings model from servies 
 const embeddings = require("./services/embeddings")
+//adding generation model 
+const generationModel = require("./services/generationModel")
 
 
-const fs = require('fs')
+const fs = require('fs');
+const { error } = require("console");
 const app = express();
 const PORT = 3000;
 
@@ -81,8 +84,17 @@ app.get("/", (req, res) => {
 //     })
 // })
 
+async function createEmbeddings(chunks){
+    if(!Array.isArray(chunks) || chunks.length === 0){
+        throw new Error("Chunks must be a non-empty array")
+    }
+    return await embeddings.embedDocuments(chunks)
+
+}
+
 app.post("/upload", upload.single("pdf"), async (req, res) => {
     try {
+        //getting the data from the file converting it(from bytes) and storing it in text 
       const dataBuffer = fs.readFileSync(req.file.path);
       const pdfData = await pdfParse(dataBuffer);
       const text = pdfData.text;
@@ -95,16 +107,14 @@ app.post("/upload", upload.single("pdf"), async (req, res) => {
   
       if (chunks.length === 0) {
         return res.status(400).json({
-          message: "No readable text was found in this PDF",
-        });
+            message: "No readable text was found on the pdf"
+        })
       }
   
-      console.log("Chunks:", chunks);
-      console.log("All chunks are strings:", chunks.every(
-        (chunk) => typeof chunk === "string"
-      ));
+      
   
-      const vectors = await embeddings.embedDocuments(chunks);
+      const vectors = await createEmbeddings(chunks)
+      console.log(vectors)
   
       return res.json({
         total_chunks: chunks.length,
@@ -116,6 +126,23 @@ app.post("/upload", upload.single("pdf"), async (req, res) => {
   
       return res.status(500).json({
         message: "Could not process PDF embeddings",
+        error: error.message,
+      });
+    }
+  });
+  //Testing Generation Model
+  app.get("/test-llm", async (req, res) => {
+    try {
+      const response = await generationModel.invoke("What is RAG?");
+  
+      res.json({
+        answer: response.content,
+      });
+    } catch (error) {
+      console.error("LLM error:", error);
+  
+      res.status(500).json({
+        message: "Generation model failed",
         error: error.message,
       });
     }
