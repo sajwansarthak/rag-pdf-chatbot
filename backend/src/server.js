@@ -112,8 +112,20 @@ app.post("/upload", upload.single("pdf"), async (req, res) => {
   
       
   
-      const vectors = await createEmbeddings(chunks)
-      console.log(vectors)
+    //   const vectors = await createEmbeddings(chunks)
+    //   console.log(vectors)
+    
+
+    // Creating and array to store text and embeddings together
+    const chunkEmbedding = []
+    for(const chunk in chunks){
+        const embedding = await createEmbeddings(chunk)
+
+        chunkEmbedding.push({
+            text: chunk,
+            embedding
+        })
+    }
   
       return res.json({
         total_chunks: chunks.length,
