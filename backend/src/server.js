@@ -1,118 +1,57 @@
 const express = require("express");
-//Used to upload pdf file 
-const multer = require("multer")
-//Used to read uploaded file
-const pdfParse = require("pdf-parse")
-//importing embeddings model from servies 
-const embeddings = require("./services/embeddings")
-//adding generation model 
-const generationModel = require("./services/generationModel")
-//adding qdrantdb
+const multer = require("multer");
+const pdfParse = require("pdf-parse");
+const cors = require("cors");
+const fs = require("fs");
+
+const embeddings = require("./services/embeddings");
+const generationModel = require("./services/generationModel");
 const qdrant = require("./services/qdrant");
 
-
-const fs = require('fs');
 const app = express();
 const PORT = 3000;
+const COLLECTION_NAME = "pdf-docs";
 
+const upload = multer({ dest: "uploads/" });
 
-//multer object 
-const upload = multer({dest: "uploads/"})
-
-// Middleware
+app.use(cors());
 app.use(express.json());
 
-// Test Route
 app.get("/", (req, res) => {
-    res.status(200).json({
-        success: true,
-        message: "RAG Backend Running 🚀"
-    });
+  res.status(200).json({
+    success: true,
+    message: "RAG Backend Running 🚀",
+  });
 });
 
-//Function to create Embeddings
-async function createEmbeddings(chunks){
-    if(!Array.isArray(chunks) || chunks.length === 0){
-        throw new Error("Chunks must be a non-empty array")
-    }
-    return await embeddings.embedDocuments(chunks)
-
+async function createEmbeddings(chunks) {
+  if (!Array.isArray(chunks) || chunks.length === 0) {
+    throw new Error("Chunks must be a non-empty array");
+  }
+  return await embeddings.embedDocuments(chunks);
 }
 
-//Adding doc to database
-app.get("/create-document", async(req,res) =>{
-    try{
-        await qdrant.createCollection('pdf-docs',{
-            vectors: {
-                size: 768,
-                distance: "Cosine"
-            },
-        })
-        res.send('collection created')
-    }catch(err){
-        res.status(500).send(err)
-    }
-})
+async function answerFromContext(question) {
+  const questionEmbedding = await embeddings.embedQuery(question);
 
+  const searchResult = await qdrant.search(COLLECTION_NAME, {
+    vector: questionEmbedding,
+    limit: 1,
+  });
 
-//whole working
-app.post("/upload", upload.single("pdf"), async (req, res) => {
-    console.log(req.body)
-    try{
-        //getting the data from the file converting it(from bytes) and storing it in text 
-        const dataBuffer = fs.readFileSync(req.file.path);
-        const pdfData = await pdfParse(dataBuffer);
-        const text = pdfData.text;
-  
-        const chunks = text
-         //replacing /n/n with /n for testing 
-            .split("\n\n")
-            .map((chunk) => chunk.trim())
-            .filter((chunk) => chunk.length > 0);
-  
-        if (chunks.length === 0) {
-            return res.status(400).json({
-                message: "No readable text was found on the pdf"
-            })    
-        }
-        // Creates one vector for every text chunk
-        const chunkVectors = await createEmbeddings(chunks);
+  if (!searchResult.length) {
+    return {
+      question,
+      answer: "i don't know.",
+      matched_chunk: null,
+      similarity_score: null,
+    };
+  }
 
-        // Combines each text chunk with its matching vector
-        const chunkEmbeddings = chunks.map((chunk, index) => ({
-            text: chunk,
-            embedding: chunkVectors[index],
-        }));
+  const bestChunk = searchResult[0].payload.text;
+  const bestScore = searchResult[0].score;
 
-        //Creting points to store in db -> in Qdrant we store {id, vector, payload}
-        const points = chunkEmbeddings.map((item,index) =>({
-            id: index + 1,
-            vector: item.embedding,
-            payload: {
-                text: item.text
-            }
-        }))
-
-        //adding in db
-        //upsert is combination of insert + update 
-        //take two parameters collection name and data
-        await qdrant.upsert("pdf-docs",{
-            points,
-        })
-
-        const question = req.body.question
-        const questionEmbedding = await embeddings.embedQuery(question)
-
-        const searchResult = await qdrant.search('pdf-docs',{
-            vector: questionEmbedding,
-            //limit 1 means you'll get the first similar search found
-            limit: 1
-        })
-        const bestChunk = searchResult[0].payload.text
-        const bestScore = searchResult[0].score
-        console.log(searchResult)
-
-        const response = await generationModel.invoke(`
+  const response = await generationModel.invoke(`
         Answer only using the context below.
         If the answer is not in the context. Say: "i don't know." 
 
@@ -122,44 +61,143 @@ app.post("/upload", upload.single("pdf"), async (req, res) => {
         Question:
         ${question}
         Return only the final answer do not give the reasoning
-        `)
+        `);
 
+  const rawAnswer = response.content;
+  const answer = rawAnswer.includes("</think>")
+    ? rawAnswer.split("</think>").pop().trim()
+    : rawAnswer.trim();
 
-        const rawAnswer = response.content;
+  return {
+    question,
+    answer,
+    matched_chunk: bestChunk,
+    similarity_score: bestScore,
+  };
+}
 
-        const answer = rawAnswer.includes("</think>")
-            ? rawAnswer.split("</think>").pop().trim()
-            : rawAnswer.trim();
+// Creates a fresh pdf-docs collection in Qdrant
+app.get("/create-document", async (req, res) => {
+  try {
+    const collections = await qdrant.getCollections();
+    const exists = collections.collections?.some(
+      (c) => c.name === COLLECTION_NAME
+    );
 
-        return res.json({
-            question,
-            answer,
-            matched_chunk: bestChunk,
-            similarity_score: bestScore,
-        });
-
-        
-    
-        //    const vectors = await createEmbeddings(chunks)
-        //    console.log(vectors)
-  
-        // return res.json({
-        //     total_chunks: chunks.length,
-        //     embedding_dimension: chunkVectors[0]?.length,
-        //     chunks,
-        // });
-    }catch (error) {
-        console.error("Embedding error:", error);
-  
-        return res.status(500).json({
-          message: "Could not process PDF embeddings",
-          error: error.message,
-        });
+    if (exists) {
+      await qdrant.deleteCollection(COLLECTION_NAME);
     }
-  });
 
+    await qdrant.createCollection(COLLECTION_NAME, {
+      vectors: {
+        size: 768,
+        distance: "Cosine",
+      },
+    });
 
-// Start Server
+    res.json({
+      success: true,
+      message: "collection created",
+      collection: COLLECTION_NAME,
+    });
+  } catch (err) {
+    console.error("Create collection error:", err);
+    res.status(500).json({
+      success: false,
+      message: "Could not create collection",
+      error: err.message,
+    });
+  }
+});
+
+// Upload PDF → chunk → embed → store in vector DB
+app.post("/upload", upload.single("pdf"), async (req, res) => {
+  try {
+    if (!req.file) {
+      return res.status(400).json({ message: "PDF file is required" });
+    }
+
+    const dataBuffer = fs.readFileSync(req.file.path);
+    const pdfData = await pdfParse(dataBuffer);
+    const text = pdfData.text;
+
+    // Clean up temp upload
+    fs.unlink(req.file.path, () => {});
+
+    const chunks = text
+      .split("\n\n")
+      .map((chunk) => chunk.trim())
+      .filter((chunk) => chunk.length > 0);
+
+    if (chunks.length === 0) {
+      return res.status(400).json({
+        message: "No readable text was found on the pdf",
+      });
+    }
+
+    const chunkVectors = await createEmbeddings(chunks);
+
+    const points = chunks.map((chunk, index) => ({
+      id: index + 1,
+      vector: chunkVectors[index],
+      payload: {
+        text: chunk,
+      },
+    }));
+
+    await qdrant.upsert(COLLECTION_NAME, { points });
+
+    // Optional: answer a question in the same request (legacy support)
+    if (req.body.question) {
+      const result = await answerFromContext(req.body.question);
+      return res.json({
+        success: true,
+        message: "PDF indexed successfully",
+        total_chunks: chunks.length,
+        ...result,
+      });
+    }
+
+    return res.json({
+      success: true,
+      message: "PDF indexed successfully",
+      total_chunks: chunks.length,
+      filename: req.file.originalname,
+    });
+  } catch (error) {
+    console.error("Upload error:", error);
+
+    if (req.file?.path) {
+      fs.unlink(req.file.path, () => {});
+    }
+
+    return res.status(500).json({
+      message: "Could not process PDF embeddings",
+      error: error.message,
+    });
+  }
+});
+
+// Ask a question against the indexed PDF
+app.post("/ask", async (req, res) => {
+  try {
+    const { question } = req.body;
+
+    if (!question || !String(question).trim()) {
+      return res.status(400).json({ message: "Question is required" });
+    }
+
+    const result = await answerFromContext(String(question).trim());
+    return res.json(result);
+  } catch (error) {
+    console.error("Ask error:", error);
+    return res.status(500).json({
+      message: "Could not answer question",
+      error: error.message,
+    });
+  }
+});
+
 app.listen(PORT, () => {
-    console.log(`Server running on http://localhost:${PORT}`);
+  console.log(`Server running on http://localhost:${PORT}`);
 });

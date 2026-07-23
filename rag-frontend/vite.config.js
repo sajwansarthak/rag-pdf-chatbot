@@ -8,4 +8,12 @@ export default defineConfig({
     react(),
     tailwindcss(),
   ],
+  server: {
+    port: 5173,
+    proxy: {
+      "/create-document": "http://localhost:3000",
+      "/upload": "http://localhost:3000",
+      "/ask": "http://localhost:3000",
+    },
+  },
 })
