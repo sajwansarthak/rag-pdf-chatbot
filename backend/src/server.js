@@ -30,62 +30,6 @@ app.get("/", (req, res) => {
     });
 });
 
-// learn uploading a file in the server
-// app.post('/upload',upload.single("pdf"),async (req,res) =>{
-//     console.log(req.file)
-
-//     //used to read the uploaded file this will give us binary data 
-//     const dataBuffer = fs.readFileSync(req.file.path)
-//     //Now we will extract the pdf text from the binary data
-//     const pdfData = await pdfParse(dataBuffer)
-//     //getting the text
-//     const text = pdfData.text
-//     // res.send(text)
-
-//     //fixed chunking 
-//     // const chunk =[];
-    
-//     // for(let i = 0 ; i < text.length;i+=500){
-//     //     chunk.push(text.slice(i,i+500));
-//     // }
-//     //console.log(chunk)
-
-//     //Paragraph based chunking
-//     const chunks = text
-//        .split("/n/n")
-//        //removes the unwanted space from the start and end of the paragraph
-//        .map((chunk) => chunk.trim)
-//        //removes empty paragraph 
-//        .filter(Boolean)
-
-//     try{
-//         const vectors = await embeddings.embedDocuments(chunks)
-
-
-//         res.json({
-//             total_chunks: chunks.length,
-//             embedding_dimension: vectors[0]?.length,
-//         })
-//     }catch(error){
-//         console.log("Embedding error:", error.cause || error)
-//         res.status(500).json({
-//             message: "could not create embeddings",
-//             error: error.cause?.message || error.message,
-//         })
-//     }
-    
-
-//     res.json({
-//         total_chunk: chunks.length,
-//         chunks
-//         //number count in one embedding vector
-//         // embedding_dimension: vectors[0]?.length,
-//         //all generated vectors
-//         //embeddings: vectors,
-//     })
-// })
-
-
 //Function to create Embeddings
 async function createEmbeddings(chunks){
     if(!Array.isArray(chunks) || chunks.length === 0){
@@ -93,15 +37,6 @@ async function createEmbeddings(chunks){
     }
     return await embeddings.embedDocuments(chunks)
 
-}
-//Function to find similarity
-function cosineSimilarity(vecA,vecB){
-    let dotProduct = 0;
-    for(let i = 0 ; i<vecA.length;i++){
-        dotProduct += vecA[i] + vecB[i]
-    }
-    //HIger the number means more similarity lower number means not similar
-    return dotProduct
 }
 
 //Adding doc to database
@@ -167,21 +102,6 @@ app.post("/upload", upload.single("pdf"), async (req, res) => {
 
         const question = req.body.question
         const questionEmbedding = await embeddings.embedQuery(question)
-        //keyword retrieval 
-        // const matchedChunk = chunks.find((chunk)=> chunk.toLowerCase()includes(question)
-
-        //Not required as our vector database will do the comparison now
-        // let bestChunk = null;
-        // let bestScore = -Infinity;
-
-        // for(const items of chunkEmbeddings){
-        //     const score = cosineSimilarity(questionEmbedding,items.embedding)
-        //     if(score > bestScore){
-        //         bestChunk = items.text;
-        //         bestScore = score
-        //     }
-        // }
-        // console.log(bestScore)
 
         const searchResult = await qdrant.search('pdf-docs',{
             vector: questionEmbedding,
@@ -237,24 +157,6 @@ app.post("/upload", upload.single("pdf"), async (req, res) => {
         });
     }
   });
-//Testing Generation Model
-// app.get("/test-llm", async (req, res) => {
-//     try {
-//       const response = await generationModel.invoke("What is RAG?");
-  
-//       res.json({
-//         answer: response.content,
-//       });
-//     } catch (error) {
-//       console.error("LLM error:", error);
-  
-//       res.status(500).json({
-//         message: "Generation model failed",
-//         error: error.message,
-//       });
-//     }
-// });
-
 
 
 // Start Server
