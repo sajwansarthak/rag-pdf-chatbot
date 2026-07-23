@@ -7,6 +7,8 @@ const pdfParse = require("pdf-parse")
 const embeddings = require("./services/embeddings")
 //adding generation model 
 const generationModel = require("./services/generationModel")
+//adding qdrantdb
+const qdrant = require("./services/qdrant");
 
 
 const fs = require('fs');
