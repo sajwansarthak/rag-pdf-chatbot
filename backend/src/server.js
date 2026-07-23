@@ -12,7 +12,6 @@ const qdrant = require("./services/qdrant");
 
 
 const fs = require('fs');
-const { dot } = require("node:test/reporters");
 const app = express();
 const PORT = 3000;
 
@@ -104,6 +103,24 @@ function cosineSimilarity(vecA,vecB){
     //HIger the number means more similarity lower number means not similar
     return dotProduct
 }
+
+//Adding doc to database
+app.get("/create-document", async(req,res) =>{
+    try{
+        await qdrant.createCollection('pdf-docs',{
+            vectors: {
+                size: 768,
+                distance: "Cosine"
+            },
+        })
+        res.send('collection created')
+    }catch(err){
+        res.status(500).send(err)
+    }
+})
+
+
+//whole working
 app.post("/upload", upload.single("pdf"), async (req, res) => {
     console.log(req.body)
     try{
@@ -132,21 +149,48 @@ app.post("/upload", upload.single("pdf"), async (req, res) => {
             embedding: chunkVectors[index],
         }));
 
+        //Creting points to store in db -> in Qdrant we store {id, vector, payload}
+        const points = chunkEmbeddings.map((item,index) =>({
+            id: index + 1,
+            vector: item.embedding,
+            payload: {
+                text: item.text
+            }
+        }))
+
+        //adding in db
+        //upsert is combination of insert + update 
+        //take two parameters collection name and data
+        await qdrant.upsert("pdf-docs",{
+            points,
+        })
+
         const question = req.body.question
         const questionEmbedding = await embeddings.embedQuery(question)
         //keyword retrieval 
         // const matchedChunk = chunks.find((chunk)=> chunk.toLowerCase()includes(question)
-        let bestChunk = null;
-        let bestScore = -Infinity;
 
-        for(const items of chunkEmbeddings){
-            const score = cosineSimilarity(questionEmbedding,items.embedding)
-            if(score > bestScore){
-                bestChunk = items.text;
-                bestScore = score
-            }
-        }
-        console.log(bestScore)
+        //Not required as our vector database will do the comparison now
+        // let bestChunk = null;
+        // let bestScore = -Infinity;
+
+        // for(const items of chunkEmbeddings){
+        //     const score = cosineSimilarity(questionEmbedding,items.embedding)
+        //     if(score > bestScore){
+        //         bestChunk = items.text;
+        //         bestScore = score
+        //     }
+        // }
+        // console.log(bestScore)
+
+        const searchResult = await qdrant.search('pdf-docs',{
+            vector: questionEmbedding,
+            //limit 1 means you'll get the first similar search found
+            limit: 1
+        })
+        const bestChunk = searchResult[0].payload.text
+        const bestScore = searchResult[0].score
+        console.log(searchResult)
 
         const response = await generationModel.invoke(`
         Answer only using the context below.
