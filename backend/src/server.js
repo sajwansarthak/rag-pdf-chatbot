@@ -36,7 +36,7 @@ async function answerFromContext(question) {
 
   const searchResult = await qdrant.search(COLLECTION_NAME, {
     vector: questionEmbedding,
-    limit: 1,
+    limit: 5,
   });
 
   if (!searchResult.length) {
