@@ -31,6 +31,23 @@ async function createEmbeddings(chunks) {
   return await embeddings.embedDocuments(chunks);
 }
 
+//sliding window chunking
+function chunkText(text, chunkSize = 800, overlap = 150) {
+  const cleaned = text.replace(/\s+/g, " ").trim(); // normalize whitespace/newlines
+  const chunks = [];
+  let start = 0;
+
+  while (start < cleaned.length) {
+    const end = Math.min(start + chunkSize, cleaned.length);
+    chunks.push(cleaned.slice(start, end).trim());
+
+    if (end === cleaned.length) break; // reached the end, stop
+    start += chunkSize - overlap; // slide forward with overlap
+  }
+
+  return chunks.filter((c) => c.length > 0);
+}
+
 async function answerFromContext(question) {
   const questionEmbedding = await embeddings.embedQuery(question);
 
@@ -48,20 +65,26 @@ async function answerFromContext(question) {
     };
   }
 
-  const bestChunk = searchResult[0].payload.text;
-  const bestScore = searchResult[0].score;
+  const contextText = searchResult
+  .map((r, i) => `[Excerpt ${i + 1}]\n${r.payload.text}`)
+  .join("\n\n");
 
-  const response = await generationModel.invoke(`
-        Answer only using the context below.
-        If the answer is not in the context. Say: "i don't know." 
+const response = await generationModel.invoke(`
+  You are a study assistant helping a student understand a document.
+  Use the context excerpts below to answer the question thoroughly.
 
-        Context:
-        ${bestChunk}
+  Guidelines:
+  - Explain the answer in your own words, don't just copy sentences from the context.
+  - Add relevant detail, definitions, or examples drawn from the context to aid understanding.
+  - If it's a technical/conceptual topic, briefly explain *why*, not just *what*.
+  - Only say "i don't know." if the context truly has nothing relevant.
+  - Do not mention "the context" or "excerpts" in your answer — write as if explaining directly to the student.
 
-        Question:
-        ${question}
-        Return only the final answer do not give the reasoning
-        `);
+  Context excerpts:
+  ${contextText}
+
+  Question: ${question}
+`);
 
   const rawAnswer = response.content;
   const answer = rawAnswer.includes("</think>")
@@ -71,8 +94,8 @@ async function answerFromContext(question) {
   return {
     question,
     answer,
-    matched_chunk: bestChunk,
-    similarity_score: bestScore,
+    matched_chunk: searchResult.map((r) => r.payload.text),
+    similarity_score: searchResult[0].score,
   };
 }
 
@@ -124,10 +147,7 @@ app.post("/upload", upload.single("pdf"), async (req, res) => {
     // Clean up temp upload
     fs.unlink(req.file.path, () => {});
 
-    const chunks = text
-      .split("\n\n")
-      .map((chunk) => chunk.trim())
-      .filter((chunk) => chunk.length > 0);
+    const chunks = chunkText(text,800,150)
 
     if (chunks.length === 0) {
       return res.status(400).json({
